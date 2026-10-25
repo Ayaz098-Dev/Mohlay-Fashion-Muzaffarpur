@@ -1,0 +1,18 @@
+import {Router} from 'express';
+import {z} from 'zod';
+import Product from '../models/Product.js';
+import Order from '../models/Order.js';
+import User from '../models/User.js';
+import {requireAuth,requireAdmin} from '../middleware/auth.js';
+const router=Router();
+router.use(requireAuth,requireAdmin);
+const productSchema=z.object({name:z.string().trim().min(2).max(180),slug:z.string().trim().min(2).max(200),description:z.string().min(5).max(5000),category:z.string().min(2).max(80),price:z.number().min(0),compareAtPrice:z.number().min(0).optional(),images:z.array(z.object({url:z.string().url(),alt:z.string().max(200).optional()})).max(10).default([]),sizes:z.array(z.string().max(30)).max(20).default([]),colours:z.array(z.string().max(50)).max(20).default([]),sku:z.string().max(80).optional(),inventory:z.number().int().min(0),tags:z.array(z.string().max(40)).max(30).default([]),isPublished:z.boolean().default(false),isFeatured:z.boolean().default(false)});
+router.get('/overview',async(_req,res,next)=>{try{const [products,customers,orders,revenue,lowStock,recentOrders]=await Promise.all([Product.countDocuments(),User.countDocuments({role:'customer'}),Order.countDocuments(),Order.aggregate([{$match:{'payment.status':'paid'}},{$group:{_id:null,total:{$sum:'$total'}}}]),Product.find({inventory:{$lte:5}}).select('name sku inventory').limit(20),Order.find().sort({createdAt:-1}).limit(8).select('orderNumber status total createdAt customer').populate('customer','name email').lean()]);res.json({products,customers,orders,revenue:revenue[0]?.total||0,lowStock,recentOrders});}catch(e){next(e)}});
+router.get('/products',async(_req,res,next)=>{try{res.json({products:await Product.find().sort({updatedAt:-1}).limit(500).lean()});}catch(e){next(e)}});
+router.post('/products',async(req,res,next)=>{try{const parsed=productSchema.safeParse(req.body);if(!parsed.success)return res.status(400).json({message:'Invalid product',errors:parsed.error.flatten()});res.status(201).json({product:await Product.create(parsed.data)});}catch(e){next(e)}});
+router.patch('/products/:id',async(req,res,next)=>{try{const parsed=productSchema.partial().safeParse(req.body);if(!parsed.success)return res.status(400).json({message:'Invalid product',errors:parsed.error.flatten()});const product=await Product.findByIdAndUpdate(req.params.id,parsed.data,{new:true,runValidators:true});if(!product)return res.status(404).json({message:'Product not found'});res.json({product});}catch(e){next(e)}});
+router.delete('/products/:id',async(req,res,next)=>{try{const product=await Product.findByIdAndDelete(req.params.id);if(!product)return res.status(404).json({message:'Product not found'});res.json({message:'Product deleted'});}catch(e){next(e)}});
+router.get('/orders',async(req,res,next)=>{try{const orders=await Order.find().sort({createdAt:-1}).limit(200).populate('customer','name email phone').lean();res.json({orders});}catch(e){next(e)}});
+router.patch('/orders/:id/status',async(req,res,next)=>{try{const parsed=z.object({status:z.enum(['pending','confirmed','processing','shipped','delivered','cancelled','returned']),trackingNumber:z.string().max(100).optional(),notes:z.string().max(1000).optional()}).safeParse(req.body);if(!parsed.success)return res.status(400).json({message:'Invalid order update'});const order=await Order.findByIdAndUpdate(req.params.id,parsed.data,{new:true,runValidators:true});if(!order)return res.status(404).json({message:'Order not found'});res.json({order});}catch(e){next(e)}});
+router.get('/customers',async(_req,res,next)=>{try{const customers=await User.find({role:'customer'}).select('name email phone createdAt').sort({createdAt:-1}).limit(500).lean();res.json({customers});}catch(e){next(e)}});
+export default router;

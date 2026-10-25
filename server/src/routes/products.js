@@ -1,0 +1,6 @@
+import {Router} from 'express';
+import Product from '../models/Product.js';
+const router=Router();
+router.get('/',async(req,res,next)=>{try{const {q,category,size,colour,minPrice,maxPrice,sort='newest',page='1',limit='24'}=req.query;const filter={isPublished:true};if(category)filter.category=category;if(size)filter.sizes=size;if(colour)filter.colours=colour;if(minPrice||maxPrice)filter.price={$gte:Number(minPrice)||0,$lte:Number(maxPrice)||Number.MAX_SAFE_INTEGER};if(q)filter.$text={$search:String(q).slice(0,100)};const sortMap={newest:{createdAt:-1},price_asc:{price:1},price_desc:{price:-1},name:{name:1}};const safePage=Math.max(1,Math.min(1000,Number(page)||1)),safeLimit=Math.max(1,Math.min(48,Number(limit)||24));const [items,total]=await Promise.all([Product.find(filter).sort(sortMap[sort]||sortMap.newest).skip((safePage-1)*safeLimit).limit(safeLimit).lean(),Product.countDocuments(filter)]);res.json({items,total,page:safePage,pages:Math.ceil(total/safeLimit)});}catch(e){next(e)}});
+router.get('/:idOrSlug',async(req,res,next)=>{try{const value=req.params.idOrSlug;const product=value.match(/^[0-9a-f]{24}$/i)?await Product.findOne({_id:value,isPublished:true}):await Product.findOne({slug:value,isPublished:true});if(!product)return res.status(404).json({message:'Product not found'});res.json({product});}catch(e){next(e)}});
+export default router;

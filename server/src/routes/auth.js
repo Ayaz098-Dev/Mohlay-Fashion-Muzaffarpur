@@ -1,0 +1,13 @@
+import {Router} from 'express';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import {z} from 'zod';
+import User from '../models/User.js';
+import {requireAuth} from '../middleware/auth.js';
+const router=Router();
+const registerSchema=z.object({name:z.string().trim().min(2).max(100),email:z.string().trim().email().max(254),phone:z.string().trim().max(20).optional(),password:z.string().min(10).max(128)});
+const signToken=user=>jwt.sign({sub:user._id.toString()},process.env.JWT_SECRET,{expiresIn:'2h',issuer:'mohlay-fashion'});
+router.post('/register',async(req,res,next)=>{try{const parsed=registerSchema.safeParse(req.body);if(!parsed.success)return res.status(400).json({message:'Please check your details',errors:parsed.error.flatten()});const {name,email,phone,password}=parsed.data;const exists=await User.findOne({email:email.toLowerCase()});if(exists)return res.status(409).json({message:'An account with this email already exists'});const passwordHash=await bcrypt.hash(password,12);const user=await User.create({name,email,phone,passwordHash});res.status(201).json({token:signToken(user),user:{id:user._id,name:user.name,email:user.email,role:user.role}});}catch(e){next(e)}});
+router.post('/login',async(req,res,next)=>{try{const parsed=z.object({email:z.string().email(),password:z.string().min(1).max(128)}).safeParse(req.body);if(!parsed.success)return res.status(400).json({message:'Enter a valid email and password'});const user=await User.findOne({email:parsed.data.email.toLowerCase()}).select('+passwordHash');if(!user||!(await bcrypt.compare(parsed.data.password,user.passwordHash)))return res.status(401).json({message:'Email or password is incorrect'});res.json({token:signToken(user),user:{id:user._id,name:user.name,email:user.email,role:user.role}});}catch(e){next(e)}});
+router.get('/me',requireAuth,(req,res)=>res.json({user:req.user}));
+export default router;
