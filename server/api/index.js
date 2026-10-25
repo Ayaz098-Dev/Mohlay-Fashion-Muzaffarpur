@@ -5,9 +5,7 @@ import mongoose from 'mongoose';
 let connectionPromise;
 
 async function connectDB() {
-  if (mongoose.connection.readyState === 1) {
-    return;
-  }
+  if (mongoose.connection.readyState === 1) return;
 
   if (!connectionPromise) {
     connectionPromise = mongoose
